@@ -186,10 +186,13 @@ export const useProxiesStore = defineStore('proxies', () => {
     if (!histA?.length) return histB?.slice(-maxLen) ?? []
     if (!histB?.length) return histA?.slice(-maxLen) ?? []
 
-    const map = new Map<string, { time: string; delay: number }>()
+    const map = new Map<number, { time: string; delay: number }>()
     for (const item of [...histA, ...histB]) {
       if (!item?.time) continue
-      map.set(item.time, item)
+      const timestamp = new Date(item.time).getTime()
+      if (Number.isNaN(timestamp)) continue
+      const secondKey = Math.round(timestamp / 1000)
+      map.set(secondKey, item)
     }
 
     return Array.from(map.values())
@@ -351,7 +354,9 @@ export const useProxiesStore = defineStore('proxies', () => {
       fetchProxiesAPI(),
     ])
 
-    const proxiesWithTestUrl = Object.values(proxiesData).map((proxy) => {
+    const proxiesWithTestUrl: ProxyWithProvider[] = Object.values(
+      proxiesData,
+    ).map((proxy) => {
       if (!proxy.all?.length) return proxy
       // Two proxy-providers can each contribute a member of the same name, so
       // mihomo lists it twice in `all`. Every API (select / latency / `now`) is
@@ -399,16 +404,29 @@ export const useProxiesStore = defineStore('proxies', () => {
       }
     }
 
-    const mergedProxies = proxiesWithTestUrl.map((proxy) => {
-      const providerProxy = providerProxiesMap.get(proxy.name)
-      if (providerProxy) {
-        const history = mergeDelayHistories(proxy.history, providerProxy.history)
-        const extra = mergeProxyExtras(proxy.extra as any, providerProxy.extra as any)
-        const provider = proxy.provider || providerProxy.provider
-        return { ...providerProxy, ...proxy, history, extra: extra as any, provider }
-      }
-      return proxy
-    })
+    const mergedProxies: (ProxyWithProvider | ProxyNodeWithProvider)[] =
+      proxiesWithTestUrl.map((proxy) => {
+        const providerProxy = providerProxiesMap.get(proxy.name)
+        if (providerProxy) {
+          const history = mergeDelayHistories(
+            proxy.history,
+            providerProxy.history,
+          )
+          const extra = mergeProxyExtras(
+            proxy.extra as any,
+            providerProxy.extra as any,
+          )
+          const provider = proxy.provider || providerProxy.provider
+          return {
+            ...providerProxy,
+            ...proxy,
+            history,
+            extra: extra as any,
+            provider,
+          }
+        }
+        return proxy
+      })
 
     const allProxies = [
       ...mergedProxies,
@@ -683,7 +701,6 @@ export const useProxiesStore = defineStore('proxies', () => {
         }
       }
 
-      recordLatencyTestResults(allResults, finalTestUrl)
       nodeRecommendationStore.recordBatchResults(allResults)
     } catch {
       // Transport failure: leave latencyMap untouched (pills keep their last
@@ -770,7 +787,6 @@ export const useProxiesStore = defineStore('proxies', () => {
               )
               results[nodeName] = delay
               recordLatencyTestResult(nodeName, finalTestUrl, delay)
-              appendLatencyHistoryEntry(nodeName, finalTestUrl, delay)
               nodeRecommendationStore.recordTestResult(
                 nodeName,
                 delay > 0 ? delay : null,

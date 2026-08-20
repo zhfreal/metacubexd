@@ -84,7 +84,24 @@ In Mihomo proxy groups configured with `type: load-balance` (especially the `lea
 
 ---
 
+## Patch 5: Group RTT Test History Deduplication & Second-Resolution Normalization Fix
+
+### 1. Issues & Motivation
+* When performing a group RTT test on a proxy group (e.g. `PROXY`), the frontend UI showed an incremented history record count (e.g. up to 8 records), but upon hard-refreshing the page (`SHIFT + F5`), the count dropped back down (to 7 records), giving the impression that the latest manual test record went missing.
+* **Root Cause 1**: `proxyGroupLatencyTest()` called `await fetchProxies()` (which loads the actual updated records from kernel memory) and immediately followed with `recordLatencyTestResults()`. `recordLatencyTestResults()` invoked `appendLatencyHistoryEntry()`, creating a synthetic client-side timestamp record `{ time: new Date().toISOString(), delay }` on top of the already fetched records.
+* **Root Cause 2**: `mergeDelayHistories()` previously deduplicated entries using exact raw string matching on `item.time`. Because the Go backend produces timestamps with timezone offset strings (e.g. `2026-08-20T20:12:51.93046656+08:00`) while JavaScript generates UTC ISO strings (`2026-08-20T12:12:52.123Z`), the string keys did not match and created a ghost duplicate entry in client memory.
+
+### 2. Implementation Details
+* **`packages/ui/stores/proxies.ts`**:
+  * Removed redundant post-fetch `recordLatencyTestResults()` from `proxyGroupLatencyTest()`, relying on `fetchProxies()` to accurately synchronize the authentic kernel state.
+  * Removed duplicate `appendLatencyHistoryEntry()` call in `proxyProviderLatencyTest()`.
+  * Updated `mergeDelayHistories()` to index and deduplicate entries by epoch second resolution (`Math.round(new Date(time).getTime() / 1000)`), making history deduplication robust against timezone formatting differences and sub-second variations.
+  * Added unit test assertions ensuring latency history length is strictly preserved and deduplicated during group RTT testing and across multiple providers.
+
+---
+
 ## Release History & Tags
 
 * **`v1.273.0+patch1`** / **`v1.273.0-patch1`**: Initial load-balance active tagging, natural sorting, and relative baseURL fixes.
 * **`v1.273.0+patch2`** / **`v1.273.0-patch2`**: Version bump, full dynamic API integration with Mihomo `v1.19.30+patch6`, and group RTT history recording fix.
+* **`v1.273.0+patch3`** / **`v1.273.0-patch3`**: Fix group RTT test synthetic duplicate generation and second-resolution timestamp deduplication.
