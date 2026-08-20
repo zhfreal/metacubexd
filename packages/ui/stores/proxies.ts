@@ -177,6 +177,49 @@ export const useProxiesStore = defineStore('proxies', () => {
   // stays bounded between server fetches.
   const LATENCY_HISTORY_MAX = 10
 
+  const mergeDelayHistories = (
+    histA?: Proxy['history'],
+    histB?: Proxy['history'],
+    maxLen = LATENCY_HISTORY_MAX,
+  ): Proxy['history'] => {
+    if (!histA?.length && !histB?.length) return []
+    if (!histA?.length) return histB?.slice(-maxLen) ?? []
+    if (!histB?.length) return histA?.slice(-maxLen) ?? []
+
+    const map = new Map<string, { time: string; delay: number }>()
+    for (const item of [...histA, ...histB]) {
+      if (!item?.time) continue
+      map.set(item.time, item)
+    }
+
+    return Array.from(map.values())
+      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+      .slice(-maxLen)
+  }
+
+  const mergeProxyExtras = (
+    extraA?: Record<string, { history?: Proxy['history']; alive?: boolean }>,
+    extraB?: Record<string, { history?: Proxy['history']; alive?: boolean }>,
+  ) => {
+    const result: Record<string, { history?: Proxy['history']; alive?: boolean }> = {}
+    const allUrls = new Set([
+      ...Object.keys(extraA || {}),
+      ...Object.keys(extraB || {}),
+    ])
+
+    for (const url of allUrls) {
+      const dataA = extraA?.[url]
+      const dataB = extraB?.[url]
+      const history = mergeDelayHistories(dataA?.history, dataB?.history)
+      result[url] = {
+        alive: dataA?.alive ?? dataB?.alive,
+        history,
+      }
+    }
+
+    return result
+  }
+
   const appendLatencyHistoryEntry = (
     nodeName: string,
     finalTestUrl: string,
@@ -186,7 +229,7 @@ export const useProxiesStore = defineStore('proxies', () => {
     const previousHistories = existingNode?.latencyTestHistory ?? {}
     const previousEntries = previousHistories[finalTestUrl] ?? []
     const entry = { time: new Date().toISOString(), delay }
-    const nextEntries = [...previousEntries, entry].slice(-LATENCY_HISTORY_MAX)
+    const nextEntries = mergeDelayHistories(previousEntries, [entry])
 
     const nextNode: ProxyInfo = existingNode
       ? {
@@ -343,11 +386,15 @@ export const useProxiesStore = defineStore('proxies', () => {
         if (!existing) {
           providerProxiesMap.set(proxy.name, { ...proxy, provider: provider.name })
         } else {
-          const existingHistoryLen = existing.history?.length ?? 0
-          const currentHistoryLen = proxy.history?.length ?? 0
-          const history = currentHistoryLen >= existingHistoryLen ? proxy.history : existing.history
-          const extra = { ...(existing.extra || {}), ...(proxy.extra || {}) }
-          providerProxiesMap.set(proxy.name, { ...existing, ...proxy, history, extra, provider: provider.name })
+          const history = mergeDelayHistories(existing.history, proxy.history)
+          const extra = mergeProxyExtras(existing.extra as any, proxy.extra as any)
+          providerProxiesMap.set(proxy.name, {
+            ...existing,
+            ...proxy,
+            history,
+            extra: extra as any,
+            provider: provider.name,
+          })
         }
       }
     }
@@ -355,12 +402,10 @@ export const useProxiesStore = defineStore('proxies', () => {
     const mergedProxies = proxiesWithTestUrl.map((proxy) => {
       const providerProxy = providerProxiesMap.get(proxy.name)
       if (providerProxy) {
-        const hasDirectHistory = (proxy.history?.length ?? 0) > 0
-        const hasProviderHistory = (providerProxy.history?.length ?? 0) > 0
-        const history = hasProviderHistory && !hasDirectHistory ? providerProxy.history : proxy.history
-        const extra = { ...(providerProxy.extra || {}), ...(proxy.extra || {}) }
+        const history = mergeDelayHistories(proxy.history, providerProxy.history)
+        const extra = mergeProxyExtras(proxy.extra as any, providerProxy.extra as any)
         const provider = proxy.provider || providerProxy.provider
-        return { ...providerProxy, ...proxy, history, extra, provider }
+        return { ...providerProxy, ...proxy, history, extra: extra as any, provider }
       }
       return proxy
     })
