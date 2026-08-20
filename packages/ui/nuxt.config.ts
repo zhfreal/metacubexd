@@ -40,7 +40,7 @@ export default defineNuxtConfig({
   // backend address"). The empty string here is only the build-time default.
   runtimeConfig: {
     public: {
-      appVersion: pkg.version,
+      appVersion: process.env.NUXT_PUBLIC_APP_VERSION || pkg.version,
       mockMode: process.env.MOCK_MODE === 'true',
       defaultBackendURL: '',
       githubToken: '',
