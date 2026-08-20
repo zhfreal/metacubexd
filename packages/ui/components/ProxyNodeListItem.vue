@@ -8,11 +8,15 @@ interface Props {
   testUrl: string | null
   timeout: number | null
   isSelected?: boolean
+  isActiveInLB?: boolean
+  lbStrategy?: string
   providerName?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isSelected: false,
+  isActiveInLB: false,
+  lbStrategy: '',
   providerName: '',
 })
 
@@ -121,7 +125,9 @@ onBeforeUnmount(() => {
       :class="
         isSelected
           ? 'bg-primary/15 text-base-content shadow-[inset_2px_0_var(--color-primary)]'
-          : 'bg-neutral text-neutral-content hover:shadow-md'
+          : isActiveInLB
+            ? 'bg-secondary/10 text-base-content shadow-[inset_2px_0_var(--color-secondary)]'
+            : 'bg-neutral text-neutral-content hover:shadow-md'
       "
       @mouseenter="onMouseEnter"
       @mouseleave="onMouseLeave"
@@ -142,6 +148,14 @@ onBeforeUnmount(() => {
           v-if="isSelected"
           class="size-4 shrink-0 text-primary"
         />
+        <div
+          v-else-if="isActiveInLB"
+          class="flex shrink-0 items-center gap-1 rounded bg-secondary/20 px-1 py-0.5 text-[0.625rem] font-bold text-secondary"
+          :title="lbStrategy || 'Load Balance Active'"
+        >
+          <span class="size-1.5 animate-pulse rounded-full bg-secondary" />
+          LB
+        </div>
 
         <!-- Proxy name -->
         <span class="line-clamp-1 min-w-0 flex-1 text-sm font-medium break-all">

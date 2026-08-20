@@ -5,6 +5,7 @@ interface Props {
   proxyNameList: string[]
   testUrl: string | null
   now?: string
+  activeNodes?: string[]
   onSelect?: (name: string) => void
 }
 
@@ -50,6 +51,7 @@ const isShowDots = computed(() => {
       :proxy-name-list="proxyNameList"
       :test-url="testUrl"
       :now="now"
+      :active-nodes="activeNodes"
       :on-select="onSelect"
     />
   </template>
