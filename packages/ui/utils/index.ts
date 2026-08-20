@@ -302,6 +302,8 @@ export function sortProxiesByOrderingType({
   }
 
   const finalTestUrl = testUrl || urlForLatencyTest
+  const compareNatural = (a: string, b: string) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
 
   return [...proxyNames].sort((a, b) => {
     const prevLatency = getLatencyByName(a, finalTestUrl)
@@ -316,60 +318,97 @@ export function sortProxiesByOrderingType({
       return proxyGroupPriority
     }
 
+    let diff = 0
     switch (orderingType) {
-      case PROXIES_ORDERING_TYPE.LATENCY_ASC:
-        if (prevLatency === latencyQualityMap.NOT_CONNECTED) return 1
-        if (nextLatency === latencyQualityMap.NOT_CONNECTED) return -1
-        return prevLatency - nextLatency
+      case PROXIES_ORDERING_TYPE.LATENCY_ASC: {
+        const prevDis = prevLatency === latencyQualityMap.NOT_CONNECTED
+        const nextDis = nextLatency === latencyQualityMap.NOT_CONNECTED
+        if (prevDis && nextDis) {
+          diff = 0
+        } else if (prevDis) {
+          return 1
+        } else if (nextDis) {
+          return -1
+        } else {
+          diff = prevLatency - nextLatency
+        }
+        break
+      }
 
-      case PROXIES_ORDERING_TYPE.LATENCY_DESC:
-        if (prevLatency === latencyQualityMap.NOT_CONNECTED) return 1
-        if (nextLatency === latencyQualityMap.NOT_CONNECTED) return -1
-        return nextLatency - prevLatency
+      case PROXIES_ORDERING_TYPE.LATENCY_DESC: {
+        const prevDis = prevLatency === latencyQualityMap.NOT_CONNECTED
+        const nextDis = nextLatency === latencyQualityMap.NOT_CONNECTED
+        if (prevDis && nextDis) {
+          diff = 0
+        } else if (prevDis) {
+          return 1
+        } else if (nextDis) {
+          return -1
+        } else {
+          diff = nextLatency - prevLatency
+        }
+        break
+      }
 
       case PROXIES_ORDERING_TYPE.NAME_ASC:
-        return a.localeCompare(b)
+        return compareNatural(a, b)
 
       case PROXIES_ORDERING_TYPE.NAME_DESC:
-        return b.localeCompare(a)
+        return compareNatural(b, a)
 
       case PROXIES_ORDERING_TYPE.QUALITY_ASC: {
-        // A node that is unreachable right now must sink to the bottom no matter
-        // how good its historical quality score is — a stale good run shouldn't
-        // outrank a node that actually connects.
-        if (prevLatency === latencyQualityMap.NOT_CONNECTED) return 1
-        if (nextLatency === latencyQualityMap.NOT_CONNECTED) return -1
+        const prevDis = prevLatency === latencyQualityMap.NOT_CONNECTED
+        const nextDis = nextLatency === latencyQualityMap.NOT_CONNECTED
+        if (prevDis && nextDis) {
+          diff = 0
+        } else if (prevDis) {
+          return 1
+        } else if (nextDis) {
+          return -1
+        } else {
+          const prevData = performanceData?.get(a)
+          const nextData = performanceData?.get(b)
+          const prevScore = prevData ? calculateNodeScore(prevData) : 0
+          const nextScore = nextData ? calculateNodeScore(nextData) : 0
 
-        const prevData = performanceData?.get(a)
-        const nextData = performanceData?.get(b)
-        const prevScore = prevData ? calculateNodeScore(prevData) : 0
-        const nextScore = nextData ? calculateNodeScore(nextData) : 0
-
-        if (prevScore === 0 && nextScore > 0) return 1
-        if (nextScore === 0 && prevScore > 0) return -1
-        return prevScore - nextScore
+          if (prevScore === 0 && nextScore > 0) return 1
+          if (nextScore === 0 && prevScore > 0) return -1
+          diff = prevScore - nextScore
+        }
+        break
       }
 
       case PROXIES_ORDERING_TYPE.QUALITY_DESC: {
-        // A node that is unreachable right now must sink to the bottom no matter
-        // how good its historical quality score is — a stale good run shouldn't
-        // outrank a node that actually connects.
-        if (prevLatency === latencyQualityMap.NOT_CONNECTED) return 1
-        if (nextLatency === latencyQualityMap.NOT_CONNECTED) return -1
+        const prevDis = prevLatency === latencyQualityMap.NOT_CONNECTED
+        const nextDis = nextLatency === latencyQualityMap.NOT_CONNECTED
+        if (prevDis && nextDis) {
+          diff = 0
+        } else if (prevDis) {
+          return 1
+        } else if (nextDis) {
+          return -1
+        } else {
+          const prevData = performanceData?.get(a)
+          const nextData = performanceData?.get(b)
+          const prevScore = prevData ? calculateNodeScore(prevData) : 0
+          const nextScore = nextData ? calculateNodeScore(nextData) : 0
 
-        const prevData = performanceData?.get(a)
-        const nextData = performanceData?.get(b)
-        const prevScore = prevData ? calculateNodeScore(prevData) : 0
-        const nextScore = nextData ? calculateNodeScore(nextData) : 0
-
-        if (prevScore === 0 && nextScore > 0) return 1
-        if (nextScore === 0 && prevScore > 0) return -1
-        return nextScore - prevScore
+          if (prevScore === 0 && nextScore > 0) return 1
+          if (nextScore === 0 && prevScore > 0) return -1
+          diff = nextScore - prevScore
+        }
+        break
       }
 
       default:
-        return 0
+        diff = 0
     }
+
+    if (diff !== 0) {
+      return diff
+    }
+
+    return compareNatural(a, b)
   })
 }
 

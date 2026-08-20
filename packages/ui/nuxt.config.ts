@@ -12,7 +12,7 @@ const isDev = process.env.NODE_ENV === 'development'
 // noise, so the whole PWA/SW layer is disabled for that target.
 const pwaDisabled = process.env.MCXD_DISABLE_PWA === 'true'
 
-const appBaseURL = process.env.NUXT_APP_BASE_URL || '/'
+const appBaseURL = process.env.NUXT_APP_BASE_URL || './'
 
 export default defineNuxtConfig({
   // Workspace move: the Nuxt app is the package root. Pin srcDir explicitly
@@ -190,6 +190,7 @@ export default defineNuxtConfig({
     // Use relative paths for assets to support both root and subdirectory deployments
     // Can be overridden with NUXT_APP_BASE_URL environment variable
     baseURL: appBaseURL,
+    buildAssetsDir: process.env.NUXT_APP_BUILD_ASSETS_DIR || '_nuxt/',
     head: {
       charset: 'utf-8',
       viewport:

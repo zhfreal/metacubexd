@@ -20,6 +20,8 @@ export interface Proxy {
   fixed?: string
   testUrl?: string
   timeout?: number
+  strategy?: string
+  active?: string[]
 }
 
 export interface ProxyNode {
@@ -209,11 +211,7 @@ export type ConnectionsTableColumnVisibility = Partial<
 export type ConnectionsTableColumnOrder = CONNECTIONS_TABLE_ACCESSOR_KEY[]
 
 export type DataUsageType =
-  | 'sourceIP'
-  | 'host'
-  | 'process'
-  | 'outbound'
-  | 'inboundUser'
+  'sourceIP' | 'host' | 'process' | 'outbound' | 'inboundUser'
 
 export interface DataUsageEntry {
   type: DataUsageType
