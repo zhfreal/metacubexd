@@ -20,6 +20,8 @@ export interface Proxy {
   fixed?: string
   testUrl?: string
   timeout?: number
+  strategy?: string
+  active?: string[]
 }
 
 export interface ProxyNode {

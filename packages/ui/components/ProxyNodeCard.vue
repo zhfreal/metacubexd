@@ -15,6 +15,8 @@ interface Props {
   timeout: number | null
   isSelected?: boolean
   isRecommended?: boolean
+  isActiveInLB?: boolean
+  lbStrategy?: string
   providerName?: string
   groupName?: string
 }
@@ -22,6 +24,8 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   isSelected: false,
   isRecommended: false,
+  isActiveInLB: false,
+  lbStrategy: '',
   providerName: '',
   groupName: '',
 })
@@ -241,12 +245,16 @@ function handleLatencyTest() {
       :class="[
         isSelected
           ? 'proxy-card--selected bg-primary/15 text-base-content'
-          : 'bg-neutral text-neutral-content',
+          : isActiveInLB
+            ? 'proxy-card--active-lb bg-secondary/10 text-base-content'
+            : 'bg-neutral text-neutral-content',
         isTesting
           ? 'animate-[testingPulse_1.5s_ease-in-out_infinite] border border-[color-mix(in_oklab,var(--color-success)_50%,transparent)]'
           : isSelected
             ? 'border border-primary'
-            : 'border border-transparent',
+            : isActiveInLB
+              ? 'border border-secondary/70 shadow-[0_0_8px_color-mix(in_oklab,var(--color-secondary)_25%,transparent)]'
+              : 'border border-transparent',
       ]"
       @mouseenter="onMouseEnter"
       @mouseleave="onMouseLeave"
@@ -262,6 +270,17 @@ function handleLatencyTest() {
         class="absolute -top-1 -right-1 z-1 flex size-4 items-center justify-center rounded-full bg-info text-[0.625rem] font-bold text-info-content"
       >
         U
+      </div>
+
+      <!-- Load Balance Active Indicator Badge -->
+      <div
+        v-if="isActiveInLB && !isSelected"
+        class="absolute -top-1.5 z-1 flex items-center gap-1 rounded-full bg-secondary px-1.5 py-0.5 text-[0.6rem] font-bold text-secondary-content shadow-sm"
+        :class="isRecommended ? 'left-4' : '-left-1.5'"
+        :title="lbStrategy ? `Active in ${lbStrategy}` : 'Active in Load Balance'"
+      >
+        <span class="inline-block size-1.5 animate-pulse rounded-full bg-secondary-content" />
+        <span>LB</span>
       </div>
 
       <!-- Recommended badge -->

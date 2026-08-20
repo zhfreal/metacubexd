@@ -6,11 +6,15 @@ interface Props {
   testUrl: string | null
   timeout: number | null
   isSelected?: boolean
+  isActiveInLB?: boolean
+  lbStrategy?: string
   providerName?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isSelected: false,
+  isActiveInLB: false,
+  lbStrategy: '',
   providerName: '',
 })
 
@@ -30,7 +34,9 @@ const { proxyType, isUDP, runLatencyTest } = useProxyNode(
     :class="
       isSelected
         ? 'bg-primary/15 text-base-content shadow-[inset_2px_0_var(--color-primary)]'
-        : 'hover:bg-base-content/5'
+        : isActiveInLB
+          ? 'bg-secondary/10 text-base-content shadow-[inset_2px_0_var(--color-secondary)]'
+          : 'hover:bg-base-content/5'
     "
     role="button"
     tabindex="0"
@@ -42,6 +48,14 @@ const { proxyType, isUDP, runLatencyTest } = useProxyNode(
   >
     <span class="flex w-4 shrink-0 justify-center">
       <IconCircleCheckFilled v-if="isSelected" class="size-4 text-primary" />
+      <span
+        v-else-if="isActiveInLB"
+        class="flex items-center gap-0.5 text-[0.6rem] font-bold text-secondary"
+        :title="lbStrategy || 'Load Balance Active'"
+      >
+        <span class="size-1.5 animate-pulse rounded-full bg-secondary" />
+        LB
+      </span>
     </span>
     <span class="min-w-0 flex-1 truncate font-medium">
       <ProxyNodeName :name="proxyName" />

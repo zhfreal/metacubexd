@@ -490,6 +490,13 @@ const ProxyGroupTitle = defineComponent({
                 { class: 'shrink-0 font-bold' },
                 formatProxyType(props.proxyGroup.type, t),
               ),
+              props.proxyGroup.type?.toLowerCase() === 'loadbalance' &&
+                props.proxyGroup.strategy &&
+                h(
+                  'span',
+                  { class: 'badge badge-xs badge-secondary font-mono uppercase' },
+                  props.proxyGroup.strategy,
+                ),
               props.proxyGroup.now?.length > 0 && [
                 h(IconChevronRight, { size: 18, class: 'shrink-0' }),
                 h('span', { class: 'min-w-0 truncate' }, props.proxyGroup.now),
@@ -506,6 +513,7 @@ const ProxyGroupTitle = defineComponent({
           h(ProxyNodePreview, {
             proxyNameList: props.sortedProxyNames,
             now: props.proxyGroup.now,
+            activeNodes: props.proxyGroup.active,
             testUrl: props.proxyGroup.testUrl || null,
             onSelect: (name: string) =>
               proxiesStore.selectProxyInGroup(props.proxyGroup, name),
@@ -572,6 +580,7 @@ const ProxyNodes = defineComponent({
     return () => {
       const names = props.sortedProxyNames
       const Comp = nodeComponentFor(configStore.proxiesDisplayMode)
+      const isLB = props.proxyGroup.type?.toLowerCase() === 'loadbalance'
       // isRecommended/groupName are card-only props. ListItem/Chip/TableRow don't
       // declare them, and Vue turns undeclared props into fallthrough DOM
       // attributes — so only pass them to the card to keep other rows' markup clean.
@@ -583,6 +592,12 @@ const ProxyNodes = defineComponent({
           testUrl: props.proxyGroup.testUrl || null,
           timeout: props.proxyGroup.timeout ?? null,
           isSelected: props.proxyGroup.now === proxyName,
+          ...(isLB
+            ? {
+                isActiveInLB: props.proxyGroup.active?.includes(proxyName) ?? false,
+                lbStrategy: props.proxyGroup.strategy ?? '',
+              }
+            : {}),
           'data-proxy-group': props.proxyGroup.name,
           'data-selected': props.proxyGroup.now === proxyName,
           ...(isCard
