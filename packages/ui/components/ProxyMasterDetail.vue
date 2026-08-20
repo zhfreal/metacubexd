@@ -211,6 +211,9 @@ function aliveCount(group: ProxyType) {
               <span class="shrink-0 font-bold">{{
                 formatProxyType(activeGroup.type, t)
               }}</span>
+              <template v-if="activeGroup.type?.toLowerCase() === 'loadbalance' && activeGroup.strategy">
+                <span class="badge badge-xs badge-secondary font-mono uppercase">{{ activeGroup.strategy }}</span>
+              </template>
               <template v-if="activeGroup.now?.length">
                 <IconChevronRight :size="16" class="shrink-0" />
                 <span class="min-w-0 truncate">{{ activeGroup.now }}</span>
@@ -368,6 +371,8 @@ function aliveCount(group: ProxyType) {
           :test-url="activeGroup.testUrl || null"
           :timeout="activeGroup.timeout ?? null"
           :is-selected="activeGroup.now === name"
+          :is-active-in-l-b="activeGroup.type?.toLowerCase() === 'loadbalance' && (activeGroup.active?.includes(name) ?? false)"
+          :lb-strategy="activeGroup.strategy ?? ''"
           :data-selected="activeGroup.now === name ? 'true' : undefined"
           @click="proxiesStore.selectProxyInGroup(activeGroup, name)"
         />

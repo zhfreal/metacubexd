@@ -5,6 +5,7 @@ interface Props {
   proxyNameList: string[]
   testUrl: string | null
   now?: string
+  activeNodes?: string[]
   onSelect?: (name: string) => void
 }
 
@@ -45,7 +46,7 @@ function getDotClass(latency: number | undefined, selected: boolean): string {
         :key="name"
         class="size-4 rounded-full transition-transform duration-200 ease-out"
         :class="[
-          getDotClass(latency, name === now),
+          getDotClass(latency, name === now || (activeNodes?.includes(name) ?? false)),
           onSelect && 'cursor-pointer hover:scale-125',
         ]"
         :title="name"
