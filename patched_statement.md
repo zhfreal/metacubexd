@@ -68,16 +68,19 @@ In Mihomo proxy groups configured with `type: load-balance` (especially the `lea
 
 ---
 
-## Patch 4: Group RTT Test Latency History Recording Fix
+## Patch 4: Group RTT Test & Provider Proxy Latency History Synchronization Fix
 
 ### 1. Issues & Motivation
-* When triggering an RTT test for an entire proxy group, the latest delay and average RTT numbers refreshed in the corner of node cards, but hovering over the cards revealed that no new test records were added to the historical records list in the tooltip.
-* Root Cause: `recordLatencyTestResults()` (used during batch group delay tests) only invoked `replaceNodeLatency()`, omitting the required `appendLatencyHistoryEntry()` call which pushes the timestamped test record into the node's `latencyTestHistory` queue.
+* When triggering an RTT test for an entire proxy group, the latest delay and average RTT numbers refreshed in the corner of node cards, but hovering over the cards revealed that some nodes (particularly nodes defined in both root config and proxy providers) had no historical test records in the tooltip.
+* **Root Cause 1**: `recordLatencyTestResults()` (used during batch group delay tests) only invoked `replaceNodeLatency()`, omitting the required `appendLatencyHistoryEntry()` call which pushes the timestamped test record into the node's `latencyTestHistory` queue.
+* **Root Cause 2**: In `fetchProxiesImpl()`, when proxy nodes were defined under top-level `proxies:` in `clash.yaml` (which have empty `history: []` in `GET /proxies`) and also loaded via `proxy-providers` (which have full 10-item `history` and `extra`), the provider's richer data was filtered out by `!(proxy.name in proxiesData)`.
 
 ### 2. Implementation Details
 * **`packages/ui/stores/proxies.ts`**:
   * Unified latency history recording by directly invoking `appendLatencyHistoryEntry(resolvedNodeName, finalTestUrl, resultDelay)` inside `recordLatencyTestResult()`.
-  * Group delay tests, provider tests, and single-node tests now consistently update both the single latency value and the full historical records queue.
+  * Merged provider `history`, `extra`, and `provider` metadata into root proxies when shared between `proxiesData` and `proxy-providers`.
+  * Handled failed/timed-out nodes during group delay tests by recording timeout failure entries (`NOT_CONNECTED`) for unreturned members.
+  * All nodes across groups now consistently preserve and display their full latency histories, statistics, and tooltips.
 
 ---
 

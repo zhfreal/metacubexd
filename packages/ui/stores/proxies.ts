@@ -335,13 +335,39 @@ export const useProxiesStore = defineStore('proxies', () => {
         provider.name !== 'default' && provider.vehicleType !== 'Compatible',
     )
 
+    // Collect all proxies from providers and merge history/extra for shared nodes
+    const providerProxiesMap = new Map<string, ProxyNodeWithProvider>()
+    for (const provider of sortedProviders) {
+      for (const proxy of provider.proxies) {
+        const existing = providerProxiesMap.get(proxy.name)
+        if (!existing) {
+          providerProxiesMap.set(proxy.name, { ...proxy, provider: provider.name })
+        } else {
+          const existingHistoryLen = existing.history?.length ?? 0
+          const currentHistoryLen = proxy.history?.length ?? 0
+          const history = currentHistoryLen >= existingHistoryLen ? proxy.history : existing.history
+          const extra = { ...(existing.extra || {}), ...(proxy.extra || {}) }
+          providerProxiesMap.set(proxy.name, { ...existing, ...proxy, history, extra, provider: provider.name })
+        }
+      }
+    }
+
+    const mergedProxies = proxiesWithTestUrl.map((proxy) => {
+      const providerProxy = providerProxiesMap.get(proxy.name)
+      if (providerProxy) {
+        const hasDirectHistory = (proxy.history?.length ?? 0) > 0
+        const hasProviderHistory = (providerProxy.history?.length ?? 0) > 0
+        const history = hasProviderHistory && !hasDirectHistory ? providerProxy.history : proxy.history
+        const extra = { ...(providerProxy.extra || {}), ...(proxy.extra || {}) }
+        const provider = proxy.provider || providerProxy.provider
+        return { ...providerProxy, ...proxy, history, extra, provider }
+      }
+      return proxy
+    })
+
     const allProxies = [
-      ...proxiesWithTestUrl,
-      ...sortedProviders.flatMap((provider) =>
-        provider.proxies
-          .filter((proxy) => !(proxy.name in proxiesData))
-          .map((proxy) => ({ ...proxy, provider: provider.name })),
-      ),
+      ...mergedProxies,
+      ...Array.from(providerProxiesMap.values()).filter((p) => !(p.name in proxiesData)),
     ]
 
     proxies.value = sortedProxies
@@ -599,8 +625,21 @@ export const useProxiesStore = defineStore('proxies', () => {
         currentProxyGroup?.timeout ?? configStore.latencyTestTimeoutDuration,
       )
       await fetchProxies()
-      recordLatencyTestResults(results, finalTestUrl)
-      nodeRecommendationStore.recordBatchResults(results)
+      const currentGroupAfterFetch = proxies.value.find(
+        (item) => item.name === proxyGroupName,
+      )
+      const allMembers = currentGroupAfterFetch?.all ?? memberNames
+      const allResults: Record<string, number> = { ...results }
+      for (const memberName of allMembers) {
+        const resolved = getNowProxyNodeName(memberName)
+        if (!resolved) continue
+        if (!(resolved in allResults) && !(memberName in allResults)) {
+          allResults[resolved] = configStore.latencyQualityMap.NOT_CONNECTED
+        }
+      }
+
+      recordLatencyTestResults(allResults, finalTestUrl)
+      nodeRecommendationStore.recordBatchResults(allResults)
     } catch {
       // Transport failure: leave latencyMap untouched (pills keep their last
       // known values) and only record failure datapoints in history /
