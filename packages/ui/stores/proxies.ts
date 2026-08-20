@@ -256,6 +256,7 @@ export const useProxiesStore = defineStore('proxies', () => {
       : configStore.latencyQualityMap.NOT_CONNECTED
 
     replaceNodeLatency(resolvedNodeName, finalTestUrl, resultDelay)
+    appendLatencyHistoryEntry(resolvedNodeName, finalTestUrl, resultDelay)
   }
 
   const recordLatencyTestResults = (
@@ -558,7 +559,6 @@ export const useProxiesStore = defineStore('proxies', () => {
       )
 
       recordLatencyTestResult(nodeName, finalTestUrl, delay)
-      appendLatencyHistoryEntry(nodeName, finalTestUrl, delay)
       nodeRecommendationStore.recordTestResult(
         nodeName,
         delay > 0 ? delay : null,

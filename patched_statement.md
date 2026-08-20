@@ -68,7 +68,20 @@ In Mihomo proxy groups configured with `type: load-balance` (especially the `lea
 
 ---
 
+## Patch 4: Group RTT Test Latency History Recording Fix
+
+### 1. Issues & Motivation
+* When triggering an RTT test for an entire proxy group, the latest delay and average RTT numbers refreshed in the corner of node cards, but hovering over the cards revealed that no new test records were added to the historical records list in the tooltip.
+* Root Cause: `recordLatencyTestResults()` (used during batch group delay tests) only invoked `replaceNodeLatency()`, omitting the required `appendLatencyHistoryEntry()` call which pushes the timestamped test record into the node's `latencyTestHistory` queue.
+
+### 2. Implementation Details
+* **`packages/ui/stores/proxies.ts`**:
+  * Unified latency history recording by directly invoking `appendLatencyHistoryEntry(resolvedNodeName, finalTestUrl, resultDelay)` inside `recordLatencyTestResult()`.
+  * Group delay tests, provider tests, and single-node tests now consistently update both the single latency value and the full historical records queue.
+
+---
+
 ## Release History & Tags
 
 * **`v1.273.0+patch1`** / **`v1.273.0-patch1`**: Initial load-balance active tagging, natural sorting, and relative baseURL fixes.
-* **`v1.273.0+patch2`** / **`v1.273.0-patch2`**: Version bump and full dynamic API integration with Mihomo `v1.19.30+patch6`.
+* **`v1.273.0+patch2`** / **`v1.273.0-patch2`**: Version bump, full dynamic API integration with Mihomo `v1.19.30+patch6`, and group RTT history recording fix.
