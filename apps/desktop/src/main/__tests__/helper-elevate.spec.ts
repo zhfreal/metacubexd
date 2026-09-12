@@ -1,139 +1,98 @@
+import { Buffer } from 'node:buffer'
+import { execFileSync } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
 import { createHelperElevate } from '../helper/elevate'
 
-interface ExecResult {
-  stdout: string
-  stderr: string
-}
-
-function makeExec() {
-  const calls: string[] = []
-  const exec = vi.fn(async (cmd: string): Promise<ExecResult> => {
-    calls.push(cmd)
-    return { stdout: '', stderr: '' }
-  })
-  return { exec, calls }
-}
-
-function makeFs(tmpdir = 'C:\\Users\\me\\AppData\\Local\\Temp') {
-  const files = new Map<string, string>()
-  const writes: Array<{ path: string; data: string }> = []
-  const unlinked: string[] = []
-  return {
-    files,
-    writes,
-    unlinked,
-    fs: {
-      writeFileSync: (path: string, data: string) => {
-        files.set(path, data)
-        writes.push({ path, data })
-      },
-      unlinkSync: (path: string) => {
-        unlinked.push(path)
-        files.delete(path)
-      },
-      tmpdir: () => tmpdir,
-      join: (...parts: string[]) => parts.join('\\'),
-    },
+function setup(platform: NodeJS.Platform) {
+  const exec = vi.fn(async (_cmd: string) => ({ stdout: '', stderr: '' }))
+  const fs = {
+    writeFileSync: vi.fn(),
+    unlinkSync: vi.fn(),
+    tmpdir: () => "C:\\Users\\O'Brien 中文\\AppData\\Local\\Temp",
+    join: (...parts: string[]) => parts.join('\\'),
   }
+  const elevate = createHelperElevate({
+    platform,
+    exec,
+    fs,
+    tempName: () => 'mcxd-elevate-test.ps1',
+  })
+  return { exec, fs, elevate }
 }
 
-describe('createHelperElevate', () => {
-  describe('darwin', () => {
-    it('wraps the script in osascript with administrator privileges', async () => {
-      const { exec, calls } = makeExec()
-      const elevate = createHelperElevate({
-        platform: 'darwin',
-        exec,
-        fs: makeFs('/tmp').fs,
-      })
+function decodedCommand(command: string): string {
+  return Buffer.from(command.split('-EncodedCommand ')[1]!, 'base64').toString(
+    'utf16le',
+  )
+}
 
-      await elevate('echo hi')
-
-      expect(calls).toHaveLength(1)
-      expect(calls[0]).toContain('osascript -e')
-      expect(calls[0]).toContain('with administrator privileges')
-      expect(calls[0]).toContain('echo hi')
-    })
-  })
-
-  describe('linux', () => {
-    it('runs the script through pkexec bash -c', async () => {
-      const { exec, calls } = makeExec()
-      const elevate = createHelperElevate({
-        platform: 'linux',
-        exec,
-        fs: makeFs('/tmp').fs,
-      })
-
-      await elevate('systemctl enable --now metacubexd-helper')
-
-      expect(calls).toHaveLength(1)
-      expect(calls[0]?.startsWith('pkexec /bin/bash -c ')).toBe(true)
-      expect(calls[0]).toContain('systemctl enable --now metacubexd-helper')
-    })
-  })
-
-  describe('windows (win32)', () => {
-    it('writes a temp .cmd and launches it via UAC Start-Process -Verb RunAs (#2116)', async () => {
-      const { exec, calls } = makeExec()
-      const { fs, writes, unlinked } = makeFs()
-      const elevate = createHelperElevate({
-        platform: 'win32',
-        exec,
-        fs,
-        // Deterministic name so the assertion is stable.
-        tempName: () => 'mcxd-elevate-test.cmd',
-      })
-
-      const script = [
-        'sc create metacubexd-helper binPath= "C:\\app\\electron.exe C:\\app\\helper.js" start= auto',
-        'sc start metacubexd-helper',
-      ].join('\r\n')
-      await elevate(script)
-
-      const tmpPath =
-        'C:\\Users\\me\\AppData\\Local\\Temp\\mcxd-elevate-test.cmd'
-      expect(writes).toEqual([{ path: tmpPath, data: script }])
-      expect(calls).toHaveLength(1)
-      const command = calls[0]?.toLowerCase() ?? ''
-      expect(command).toContain('powershell')
-      // Resolved by absolute path — a bare `powershell` lookup fails when
-      // Electron spawns with a reduced PATH (#2149).
-      expect(command).toContain('\\system32\\windowspowershell\\v1.0\\')
-      expect(command).toContain('start-process')
-      expect(command).toContain('-verb runas')
-      expect(calls[0]).toContain(tmpPath)
-      // Temp script cleaned up after the elevated process returns.
-      expect(unlinked).toContain(tmpPath)
-    })
-
-    it('still cleans up the temp .cmd when UAC is cancelled', async () => {
-      const exec = vi.fn(async () => {
-        throw new Error('The operation was canceled by the user.')
-      })
-      const { fs, unlinked } = makeFs()
-      const elevate = createHelperElevate({
-        platform: 'win32',
-        exec,
-        fs,
-        tempName: () => 'mcxd-elevate-cancel.cmd',
-      })
-
-      await expect(elevate('sc create x')).rejects.toThrow('canceled')
-      expect(unlinked).toContain(
-        'C:\\Users\\me\\AppData\\Local\\Temp\\mcxd-elevate-cancel.cmd',
+describe('helper elevation', () => {
+  it('keeps the complete macOS script as one AppleScript argument including single quotes', async () => {
+    const { exec, elevate } = setup('darwin')
+    const script =
+      "printf '%s' 'secret' > '/Library/Application Support/helper.secret'"
+    await elevate(script)
+    const command = exec.mock.calls[0]![0]
+    expect(command).toContain('osascript -e')
+    expect(command).toContain('with administrator privileges')
+    if (process.platform !== 'win32') {
+      // Replace osascript with printf to inspect shell argument boundaries only.
+      const args = execFileSync(
+        '/bin/sh',
+        ['-c', command.replace('osascript', "printf '%s\\n'")],
+        { encoding: 'utf8' },
       )
-    })
+      expect(args).toBe(
+        `-e\ndo shell script "${script}" with administrator privileges\n`,
+      )
+    }
   })
 
-  it('throws on unsupported platforms', async () => {
-    const { exec } = makeExec()
-    const elevate = createHelperElevate({
-      platform: 'freebsd' as NodeJS.Platform,
-      exec,
-      fs: makeFs().fs,
-    })
-    await expect(elevate('echo hi')).rejects.toThrow('unsupported platform')
+  it('runs the complete Linux script through one pkexec invocation', async () => {
+    const { exec, elevate } = setup('linux')
+    await elevate("systemctl restart 'metacubexd-helper'")
+    expect(exec).toHaveBeenCalledTimes(1)
+    const command = exec.mock.calls[0]![0]
+    expect(command).toMatch(/^pkexec \/bin\/bash -c /)
+    if (process.platform !== 'win32')
+      execFileSync('/bin/sh', ['-n'], { input: command })
+  })
+
+  it('uses a Unicode PowerShell script, quotes its path, and propagates the elevated exit code', async () => {
+    const { exec, fs, elevate } = setup('win32')
+    const script = "$ErrorActionPreference = 'Stop'\r\nthrow 'installer failed'"
+    await elevate(script)
+    const path =
+      "C:\\Users\\O'Brien 中文\\AppData\\Local\\Temp\\mcxd-elevate-test.ps1"
+    expect(fs.writeFileSync).toHaveBeenCalledWith(path, `\uFEFF${script}`)
+    expect(exec).toHaveBeenCalledTimes(1)
+    const command = exec.mock.calls[0]![0]
+    expect(command).toMatch(
+      /^"[^"]+\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe"/,
+    )
+    const outer = decodedCommand(command)
+    expect(outer).toContain("$ErrorActionPreference = 'Stop'")
+    expect(outer).toContain('-Verb RunAs -Wait -PassThru')
+    expect(outer).toContain('exit $process.ExitCode')
+    expect(outer).toContain(`-File "${path.replaceAll("'", "''")}"`)
+    expect(command).not.toContain('installer failed')
+    expect(fs.unlinkSync).toHaveBeenCalledWith(path)
+  })
+
+  it.each([
+    'The operation was canceled by the user.',
+    'Command exited with code 1',
+  ])('propagates %s and removes the temporary script', async (message) => {
+    const { exec, fs, elevate } = setup('win32')
+    const error = new Error(message)
+    exec.mockRejectedValueOnce(error)
+    await expect(elevate('throw "error"')).rejects.toBe(error)
+    expect(fs.unlinkSync).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports unsupported platforms', async () => {
+    await expect(setup('freebsd').elevate('echo hi')).rejects.toThrow(
+      'unsupported platform',
+    )
   })
 })

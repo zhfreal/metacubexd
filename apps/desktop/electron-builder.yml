@@ -45,9 +45,12 @@ asarUnpack:
   # (`<electron-bin> out/helper/index.js`, ELECTRON_RUN_AS_NODE=1). A file inside
   # app.asar can't be spawned that way, so unpack it.
   # resolveHelperEntry() points at <resourcesPath>/app.asar.unpacked/out/helper/index.js.
+  # The multi-entry build shares modules with main via out/chunks. Those imports
+  # must also exist beside the unpacked helper when Electron runs it as Node.
   # NOTE: mihomo + wintun.dll ship via extraResources (outside the asar
-  # entirely), so they need no asarUnpack entry here — only the helper does.
+  # entirely), so they need no asarUnpack entry here.
   - 'out/helper/**'
+  - 'out/chunks/**'
 # NOTE: mihomo is staged per-platform below (mac/linux: `mihomo`, win:
 # `mihomo.exe`) because electron-builder does NOT define the `${ext}` macro in
 # extraResources `from`/`to` (it only exists in artifact-name context), so a

@@ -255,8 +255,13 @@ apps you point at it). Because system-level routing needs root/admin, the
 desktop app installs a small **privileged helper** the first time you enable
 TUN — a background service that performs the privileged network setup on the
 app's behalf. Enabling TUN therefore prompts for **administrator authorization**
-the first time (the OS elevation dialog). The helper persists across sessions,
-so later enables don't re-prompt for install.
+the first time (the OS elevation dialog). Activate a profile before enabling
+TUN. The helper persists across sessions, so later enables normally reuse it.
+
+The app waits briefly for the helper to become ready. If an existing helper
+cannot be reached or uses an incompatible protocol, the app attempts one repair;
+this can request administrator authorization again. If activation fails, the
+app removes the TUN settings and attempts to restart the normal proxy backend.
 
 > The helper is installed by an unsigned app. Confirm that you downloaded the
 > app from the official release page before approving its administrator prompt.
@@ -266,9 +271,10 @@ so later enables don't re-prompt for install.
 - **macOS** — the helper is registered as a root **LaunchDaemon**; you approve
   it through the standard `osascript` "wants to make changes" administrator
   prompt. The kernel binds the system's `utun` interface.
-- **Windows** — the helper is registered as an auto-start **Windows service**
-  (UAC prompt). The build ships **`wintun.dll`** alongside the kernel, which
-  mihomo's wintun backend needs — no separate download.
+- **Windows** — the helper runs as the auto-start **`metacubexd-helper` Windows
+  service**, installed through a UAC prompt. Stopping the service also stops its
+  helper and kernel processes. The build ships **`wintun.dll`** alongside the
+  kernel, which mihomo's wintun backend needs — no separate download.
 - **Linux** — the helper is registered as a root **systemd** unit; the elevation
   prompt is **`pkexec`** (the GNOME/PolicyKit authorization dialog). On a headless
   box without a Polkit agent you may need to install/enable one.

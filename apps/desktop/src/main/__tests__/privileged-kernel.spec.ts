@@ -1,5 +1,7 @@
-import type { ChildProcess } from 'node:child_process'
 import type { StatPathFn } from '../../helper/index'
+import { ChildProcess, spawn as nodeSpawn } from 'node:child_process'
+import { once } from 'node:events'
+import { createServer } from 'node:net'
 import { describe, expect, it, vi } from 'vitest'
 import {
   assertSafeKernelPaths,
@@ -7,14 +9,16 @@ import {
   resolveHelperSecret,
 } from '../../helper/index'
 
-// Minimal ChildProcess double: never spawns a real process.
+// Use the real event emitter shape without launching a process.
 function fakeProc(): ChildProcess {
-  return {
-    exitCode: null,
-    killed: false,
-    kill: vi.fn(),
-    on: vi.fn(),
-  } as unknown as ChildProcess
+  const proc = new ChildProcess()
+  proc.kill = vi.fn(() => {
+    Object.assign(proc, { killed: true })
+    queueMicrotask(() => proc.emit('exit', null, 'SIGTERM'))
+    return true
+  })
+  queueMicrotask(() => proc.emit('spawn'))
+  return proc
 }
 
 const GOOD = {
@@ -114,6 +118,179 @@ describe('createPrivilegedKernel.start — spawn-path validation', () => {
     const res = await kernel.start(GOOD)
     expect(res.ok).toBe(true)
     expect(spawn).toHaveBeenCalledOnce()
+  })
+})
+
+describe('createPrivilegedKernel — process lifecycle', () => {
+  it('reports running only after the child emits spawn', async () => {
+    const proc = new ChildProcess()
+    const kernel = createPrivilegedKernel({
+      spawn: () => proc,
+      statPath: okStat,
+    })
+    const start = kernel.start(GOOD)
+    expect(kernel.status().running).toBe(false)
+
+    proc.emit('spawn')
+
+    expect(await start).toEqual({ ok: true, running: true })
+    proc.emit('exit', 0, null)
+    expect(kernel.status().running).toBe(false)
+  })
+
+  it('rejects an actual asynchronous spawn error and clears the failed child', async () => {
+    const logError = vi.fn()
+    const kernel = createPrivilegedKernel({ statPath: okStat, logError })
+
+    await expect(
+      kernel.start({
+        ...GOOD,
+        binaryPath: '/nonexistent-metacubexd-test/mihomo',
+      }),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+
+    expect(logError).toHaveBeenCalledOnce()
+    expect(kernel.status().running).toBe(false)
+    await kernel.stop()
+  })
+
+  it('waits for exit after signaling, including concurrent stop requests', async () => {
+    const proc = new ChildProcess()
+    proc.kill = vi.fn(() => {
+      Object.assign(proc, { killed: true })
+      return true
+    })
+    const kernel = createPrivilegedKernel({
+      spawn: () => proc,
+      statPath: okStat,
+    })
+    const start = kernel.start(GOOD)
+    proc.emit('spawn')
+    await start
+    let stopped = false
+    const firstStop = kernel.stop().then(() => {
+      stopped = true
+    })
+    const secondStop = kernel.stop()
+    await Promise.resolve()
+
+    expect(proc.killed).toBe(true)
+    expect(stopped).toBe(false)
+    expect(kernel.status().running).toBe(true)
+    expect(proc.kill).toHaveBeenCalledExactlyOnceWith('SIGTERM')
+
+    Object.assign(proc, { signalCode: 'SIGTERM' })
+    proc.emit('exit', null, 'SIGTERM')
+    await Promise.all([firstStop, secondStop])
+    expect(kernel.status().running).toBe(false)
+  })
+
+  it('escalates a stuck shutdown to SIGKILL and still waits for exit', async () => {
+    vi.useFakeTimers()
+    try {
+      const proc = new ChildProcess()
+      proc.kill = vi.fn(() => true)
+      const kernel = createPrivilegedKernel({
+        spawn: () => proc,
+        statPath: okStat,
+        stopTimeoutMs: 50,
+        killTimeoutMs: 25,
+      })
+      const start = kernel.start(GOOD)
+      proc.emit('spawn')
+      await start
+      let stopped = false
+      const stop = kernel.stop().then(() => {
+        stopped = true
+      })
+
+      await vi.advanceTimersByTimeAsync(50)
+
+      expect(proc.kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
+      expect(proc.kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+      expect(stopped).toBe(false)
+      Object.assign(proc, { signalCode: 'SIGKILL' })
+      proc.emit('exit', null, 'SIGKILL')
+      await stop
+      expect(kernel.status().running).toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('fails a shutdown that never exits instead of pretending its ports are free', async () => {
+    vi.useFakeTimers()
+    try {
+      const proc = new ChildProcess()
+      proc.kill = vi.fn(() => true)
+      const kernel = createPrivilegedKernel({
+        spawn: () => proc,
+        statPath: okStat,
+        stopTimeoutMs: 50,
+        killTimeoutMs: 25,
+      })
+      const start = kernel.start(GOOD)
+      proc.emit('spawn')
+      await start
+      const failure = kernel.stop().catch((error: unknown) => error)
+
+      await vi.runAllTimersAsync()
+
+      expect(await failure).toMatchObject({
+        message: 'helper: kernel did not exit after SIGKILL',
+      })
+      expect(kernel.status().running).toBe(true)
+      proc.emit('exit', null, 'SIGKILL')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('releases a real child listener before the sidecar reuses its port', async () => {
+    let proc: ChildProcess | undefined
+    const kernel = createPrivilegedKernel({
+      statPath: okStat,
+      spawn: () => {
+        // An ordinary Node child, with a deliberately delayed graceful exit.
+        proc = nodeSpawn(
+          process.execPath,
+          [
+            '-e',
+            `
+          const server = require('node:net').createServer()
+          server.listen(0, '127.0.0.1', () => process.send(server.address().port))
+          process.on('SIGTERM', () => setTimeout(() => process.exit(0), 50))
+        `,
+          ],
+          { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+        )
+        return proc
+      },
+    })
+    const replacement = createServer()
+    try {
+      const start = kernel.start(GOOD)
+      const message = once(proc!, 'message')
+      await start
+      const [port] = await message
+
+      await kernel.stop()
+
+      expect(proc!.exitCode !== null || proc!.signalCode !== null).toBe(true)
+      await new Promise<void>((resolve, reject) => {
+        replacement.once('error', reject)
+        replacement.listen(port as number, '127.0.0.1', resolve)
+      })
+    } finally {
+      if (replacement.listening)
+        await new Promise<void>((resolve) => replacement.close(() => resolve()))
+      if (proc && proc.exitCode === null && proc.signalCode === null) {
+        const exited = once(proc, 'exit')
+        proc.kill('SIGKILL')
+        await exited
+      }
+    }
   })
 })
 

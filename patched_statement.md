@@ -1,6 +1,6 @@
 # Patched Statement
 
-This document describes the patches applied to the `v1.273.0-patched` branch of `MetaCubeX/metacubexd`.
+This document describes the patches applied to the `v1.273.1-patched` branch of `MetaCubeX/metacubexd`.
 
 ---
 
@@ -102,6 +102,7 @@ In Mihomo proxy groups configured with `type: load-balance` (especially the `lea
 
 ## Release History & Tags
 
+* **`v1.273.1+patch1`** / **`v1.273.1-patch1`**: Rebased and applied all patches (1–5) onto upstream release `v1.273.1`, fully maintaining load-balance active candidate tagging, natural ordering, relative baseURL deployment, group RTT latency history sync & provider merge, and second-resolution deduplication.
 * **`v1.273.0+patch1`** / **`v1.273.0-patch1`**: Initial load-balance active tagging, natural sorting, and relative baseURL fixes.
 * **`v1.273.0+patch2`** / **`v1.273.0-patch2`**: Version bump, full dynamic API integration with Mihomo `v1.19.30+patch6`, and group RTT history recording fix.
 * **`v1.273.0+patch3`** / **`v1.273.0-patch3`**: Fix group RTT test synthetic duplicate generation and second-resolution timestamp deduplication.

@@ -1,7 +1,7 @@
 {
   "name": "@metacubexd/desktop",
   "desktopName": "metacubexd",
-  "version": "1.273.0+patch3",
+  "version": "1.273.1+patch1",
   "description": "MetaCubeXD — the official Mihomo dashboard, desktop app",
   "homepage": "https://github.com/MetaCubeX/metacubexd",
   "author": "MetaCubeX",
@@ -18,6 +18,7 @@
     "ensure:electron": "node -e \"require('electron')\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "test:helper-package": "electron-vite build && node scripts/test-helper-package.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {

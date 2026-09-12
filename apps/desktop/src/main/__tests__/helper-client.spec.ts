@@ -84,6 +84,43 @@ describe('createHelperClient', () => {
     }
   })
 
+  it.each([
+    ['helper: protocol version mismatch (helper old, client current)', true],
+    ['helper: shared secret mismatch', false],
+  ])(
+    'handles an older helper rejecting getVersion: %s',
+    async (error, mismatch) => {
+      server = await createHelperServer({
+        socketPath,
+        secret: SECRET,
+        kernel: fakeKernel(),
+      })
+      // Model the older wire behavior: even version discovery returned ok:false.
+      server.server.removeAllListeners('connection')
+      server.server.on('connection', (socket) => {
+        socket.on('error', () => {})
+        socket.on('data', () => {
+          socket.write(
+            `${JSON.stringify({
+              type: 'getVersion',
+              ok: false,
+              version: 'old',
+              error,
+            })}\n`,
+          )
+        })
+      })
+      const client = createHelperClient({ socketPath, secret: SECRET })
+      try {
+        const failure = await client.getVersion().catch((err: unknown) => err)
+        expect(failure).toBeInstanceOf(Error)
+        expect(failure instanceof HelperVersionMismatchError).toBe(mismatch)
+      } finally {
+        await client.close()
+      }
+    },
+  )
+
   it('startKernel() forwards opts and resolves the running result', async () => {
     const kernel = fakeKernel()
     server = await createHelperServer({ socketPath, secret: SECRET, kernel })

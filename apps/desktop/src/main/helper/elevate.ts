@@ -14,6 +14,7 @@
  * exact elevated command strings without prompting or touching disk.
  */
 
+import { Buffer } from 'node:buffer'
 import {
   unlinkSync as nodeUnlinkSync,
   writeFileSync as nodeWriteFileSync,
@@ -38,7 +39,7 @@ export interface CreateHelperElevateOptions {
   exec: ExecFn
   /** Injected fs; defaults to node:fs + os.tmpdir + path.join. */
   fs?: ElevateFs
-  /** Override the temp .cmd basename (tests); defaults to a unique name. */
+  /** Override the temp .ps1 basename (tests); defaults to a unique name. */
   tempName?: () => string
 }
 
@@ -69,7 +70,7 @@ export function createHelperElevate(
   const { platform, exec } = opts
   const fs = opts.fs ?? defaultFs
   const tempName =
-    opts.tempName ?? (() => `mcxd-elevate-${process.pid}-${Date.now()}.cmd`)
+    opts.tempName ?? (() => `mcxd-elevate-${process.pid}-${Date.now()}.ps1`)
 
   return async (script: string) => {
     switch (platform) {
@@ -77,7 +78,9 @@ export function createHelperElevate(
         // Escape for embedding inside an AppleScript string literal.
         const escaped = script.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
         return exec(
-          `osascript -e 'do shell script "${escaped}" with administrator privileges'`,
+          `osascript -e ${shSingleQuote(
+            `do shell script "${escaped}" with administrator privileges`,
+          )}`,
         )
       }
       case 'linux': {
@@ -86,23 +89,22 @@ export function createHelperElevate(
         return exec(`pkexec /bin/bash -c ${shSingleQuote(script)}`)
       }
       case 'win32': {
-        // Write the multi-line install script to a temp .cmd, then ShellExecute
-        // it with the runas verb so UAC prompts. Plain `exec(script)` has no
-        // elevation and `sc create` / HKLM writes fail with Access Denied.
+        // PowerShell 5.1 needs a BOM to preserve Unicode installation paths.
+        // Encode the outer command so cmd.exe cannot expand paths or secrets.
         const tmpPath = fs.join(fs.tmpdir(), tempName())
-        fs.writeFileSync(tmpPath, script)
-        // Resolve PowerShell by ABSOLUTE path. Electron sometimes spawns the
-        // elevate with a reduced PATH (and some installs omit System32 from the
-        // user PATH), so the bare `powershell` lookup fails with "'powershell'
-        // is not recognized as an internal or external command", breaking every
-        // helper install + TUN enable (#2149). The canonical binary lives under
-        // %SystemRoot%\System32\WindowsPowerShell\v1.0.
+        fs.writeFileSync(tmpPath, `\uFEFF${script}`)
         const root =
           process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows'
         const powershell = `${root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+        const args = `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${tmpPath}"`
+        const command = [
+          "$ErrorActionPreference = 'Stop'",
+          `$process = Start-Process -FilePath ${psSingleQuote(powershell)} -ArgumentList ${psSingleQuote(args)} -Verb RunAs -Wait -PassThru -WindowStyle Hidden`,
+          'exit $process.ExitCode',
+        ].join('\n')
         try {
           return await exec(
-            `"${powershell}" -NoProfile -NonInteractive -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c',${psSingleQuote(tmpPath)} -Verb RunAs -Wait -WindowStyle Hidden"`,
+            `"${powershell}" -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(command, 'utf16le').toString('base64')}`,
           )
         } finally {
           try {
