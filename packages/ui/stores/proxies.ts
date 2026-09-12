@@ -177,6 +177,52 @@ export const useProxiesStore = defineStore('proxies', () => {
   // stays bounded between server fetches.
   const LATENCY_HISTORY_MAX = 10
 
+  const mergeDelayHistories = (
+    histA?: Proxy['history'],
+    histB?: Proxy['history'],
+    maxLen = LATENCY_HISTORY_MAX,
+  ): Proxy['history'] => {
+    if (!histA?.length && !histB?.length) return []
+    if (!histA?.length) return histB?.slice(-maxLen) ?? []
+    if (!histB?.length) return histA?.slice(-maxLen) ?? []
+
+    const map = new Map<number, { time: string; delay: number }>()
+    for (const item of [...histA, ...histB]) {
+      if (!item?.time) continue
+      const timestamp = new Date(item.time).getTime()
+      if (Number.isNaN(timestamp)) continue
+      const secondKey = Math.round(timestamp / 1000)
+      map.set(secondKey, item)
+    }
+
+    return Array.from(map.values())
+      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+      .slice(-maxLen)
+  }
+
+  const mergeProxyExtras = (
+    extraA?: Record<string, { history?: Proxy['history']; alive?: boolean }>,
+    extraB?: Record<string, { history?: Proxy['history']; alive?: boolean }>,
+  ) => {
+    const result: Record<string, { history?: Proxy['history']; alive?: boolean }> = {}
+    const allUrls = new Set([
+      ...Object.keys(extraA || {}),
+      ...Object.keys(extraB || {}),
+    ])
+
+    for (const url of allUrls) {
+      const dataA = extraA?.[url]
+      const dataB = extraB?.[url]
+      const history = mergeDelayHistories(dataA?.history, dataB?.history)
+      result[url] = {
+        alive: dataA?.alive ?? dataB?.alive,
+        history,
+      }
+    }
+
+    return result
+  }
+
   const appendLatencyHistoryEntry = (
     nodeName: string,
     finalTestUrl: string,
@@ -186,7 +232,7 @@ export const useProxiesStore = defineStore('proxies', () => {
     const previousHistories = existingNode?.latencyTestHistory ?? {}
     const previousEntries = previousHistories[finalTestUrl] ?? []
     const entry = { time: new Date().toISOString(), delay }
-    const nextEntries = [...previousEntries, entry].slice(-LATENCY_HISTORY_MAX)
+    const nextEntries = mergeDelayHistories(previousEntries, [entry])
 
     const nextNode: ProxyInfo = existingNode
       ? {
@@ -256,6 +302,7 @@ export const useProxiesStore = defineStore('proxies', () => {
       : configStore.latencyQualityMap.NOT_CONNECTED
 
     replaceNodeLatency(resolvedNodeName, finalTestUrl, resultDelay)
+    appendLatencyHistoryEntry(resolvedNodeName, finalTestUrl, resultDelay)
   }
 
   const recordLatencyTestResults = (
@@ -307,7 +354,9 @@ export const useProxiesStore = defineStore('proxies', () => {
       fetchProxiesAPI(),
     ])
 
-    const proxiesWithTestUrl = Object.values(proxiesData).map((proxy) => {
+    const proxiesWithTestUrl: ProxyWithProvider[] = Object.values(
+      proxiesData,
+    ).map((proxy) => {
       if (!proxy.all?.length) return proxy
       // Two proxy-providers can each contribute a member of the same name, so
       // mihomo lists it twice in `all`. Every API (select / latency / `now`) is
@@ -334,13 +383,54 @@ export const useProxiesStore = defineStore('proxies', () => {
         provider.name !== 'default' && provider.vehicleType !== 'Compatible',
     )
 
+    // Collect all proxies from providers and merge history/extra for shared nodes
+    const providerProxiesMap = new Map<string, ProxyNodeWithProvider>()
+    for (const provider of sortedProviders) {
+      for (const proxy of provider.proxies) {
+        const existing = providerProxiesMap.get(proxy.name)
+        if (!existing) {
+          providerProxiesMap.set(proxy.name, { ...proxy, provider: provider.name })
+        } else {
+          const history = mergeDelayHistories(existing.history, proxy.history)
+          const extra = mergeProxyExtras(existing.extra as any, proxy.extra as any)
+          providerProxiesMap.set(proxy.name, {
+            ...existing,
+            ...proxy,
+            history,
+            extra: extra as any,
+            provider: provider.name,
+          })
+        }
+      }
+    }
+
+    const mergedProxies: (ProxyWithProvider | ProxyNodeWithProvider)[] =
+      proxiesWithTestUrl.map((proxy) => {
+        const providerProxy = providerProxiesMap.get(proxy.name)
+        if (providerProxy) {
+          const history = mergeDelayHistories(
+            proxy.history,
+            providerProxy.history,
+          )
+          const extra = mergeProxyExtras(
+            proxy.extra as any,
+            providerProxy.extra as any,
+          )
+          const provider = proxy.provider || providerProxy.provider
+          return {
+            ...providerProxy,
+            ...proxy,
+            history,
+            extra: extra as any,
+            provider,
+          }
+        }
+        return proxy
+      })
+
     const allProxies = [
-      ...proxiesWithTestUrl,
-      ...sortedProviders.flatMap((provider) =>
-        provider.proxies
-          .filter((proxy) => !(proxy.name in proxiesData))
-          .map((proxy) => ({ ...proxy, provider: provider.name })),
-      ),
+      ...mergedProxies,
+      ...Array.from(providerProxiesMap.values()).filter((p) => !(p.name in proxiesData)),
     ]
 
     proxies.value = sortedProxies
@@ -558,7 +648,6 @@ export const useProxiesStore = defineStore('proxies', () => {
       )
 
       recordLatencyTestResult(nodeName, finalTestUrl, delay)
-      appendLatencyHistoryEntry(nodeName, finalTestUrl, delay)
       nodeRecommendationStore.recordTestResult(
         nodeName,
         delay > 0 ? delay : null,
@@ -599,8 +688,20 @@ export const useProxiesStore = defineStore('proxies', () => {
         currentProxyGroup?.timeout ?? configStore.latencyTestTimeoutDuration,
       )
       await fetchProxies()
-      recordLatencyTestResults(results, finalTestUrl)
-      nodeRecommendationStore.recordBatchResults(results)
+      const currentGroupAfterFetch = proxies.value.find(
+        (item) => item.name === proxyGroupName,
+      )
+      const allMembers = currentGroupAfterFetch?.all ?? memberNames
+      const allResults: Record<string, number> = { ...results }
+      for (const memberName of allMembers) {
+        const resolved = getNowProxyNodeName(memberName)
+        if (!resolved) continue
+        if (!(resolved in allResults) && !(memberName in allResults)) {
+          allResults[resolved] = configStore.latencyQualityMap.NOT_CONNECTED
+        }
+      }
+
+      nodeRecommendationStore.recordBatchResults(allResults)
     } catch {
       // Transport failure: leave latencyMap untouched (pills keep their last
       // known values) and only record failure datapoints in history /
@@ -686,7 +787,6 @@ export const useProxiesStore = defineStore('proxies', () => {
               )
               results[nodeName] = delay
               recordLatencyTestResult(nodeName, finalTestUrl, delay)
-              appendLatencyHistoryEntry(nodeName, finalTestUrl, delay)
               nodeRecommendationStore.recordTestResult(
                 nodeName,
                 delay > 0 ? delay : null,
