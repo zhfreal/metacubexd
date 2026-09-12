@@ -439,6 +439,63 @@ describe('stores/proxies latency state', () => {
     })
     expect(store.getLatencyByName('node-a', null)).toBe(120)
     expect(store.getLatencyByName('node-b', null)).toBe(0)
+    expect(store.getLatencyHistoryByName('node-a', null)).toHaveLength(1)
+  })
+
+  it('deduplicates provider proxy histories when timestamps differ only in format/timezone or sub-second resolution', async () => {
+    apiMocks.fetchProxyProvidersAPI.mockResolvedValue({
+      providers: {
+        'provider-1': {
+          name: 'provider-1',
+          type: 'Proxy',
+          vehicleType: 'HTTP',
+          proxies: [
+            proxy({
+              name: 'shared-node',
+              history: [
+                { time: '2026-08-20T20:12:51.93046656+08:00', delay: 212 },
+              ],
+            }),
+          ],
+        },
+        'provider-2': {
+          name: 'provider-2',
+          type: 'Proxy',
+          vehicleType: 'HTTP',
+          proxies: [
+            proxy({
+              name: 'shared-node',
+              history: [
+                { time: '2026-08-20T12:12:52.123Z', delay: 212 },
+              ],
+            }),
+          ],
+        },
+      },
+    })
+    apiMocks.fetchProxiesAPI.mockResolvedValue({
+      proxies: {
+        GROUP: {
+          name: 'GROUP',
+          type: 'Selector',
+          all: ['shared-node'],
+          extra: {},
+          history: [],
+          hidden: false,
+          udp: false,
+          xudp: false,
+          tfo: false,
+          now: 'shared-node',
+        },
+      },
+    })
+
+    const store = useProxiesStore()
+    await store.fetchProxies()
+
+    const history = store.getLatencyHistoryByName('shared-node', null)
+    expect(history).toHaveLength(1)
+    expect(history[0]?.delay).toBe(212)
   })
 
   it('drops stale latency when fresh proxy data has no successful history', async () => {
