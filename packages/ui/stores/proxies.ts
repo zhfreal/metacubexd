@@ -214,8 +214,13 @@ export const useProxiesStore = defineStore('proxies', () => {
       const dataA = extraA?.[url]
       const dataB = extraB?.[url]
       const history = mergeDelayHistories(dataA?.history, dataB?.history)
+      const latestEntry = history[history.length - 1]
+      const alive =
+        latestEntry !== undefined
+          ? latestEntry.delay > 0
+          : Boolean(dataA?.alive || dataB?.alive)
       result[url] = {
-        alive: dataA?.alive ?? dataB?.alive,
+        alive,
         history,
       }
     }
@@ -393,12 +398,18 @@ export const useProxiesStore = defineStore('proxies', () => {
         } else {
           const history = mergeDelayHistories(existing.history, proxy.history)
           const extra = mergeProxyExtras(existing.extra as any, proxy.extra as any)
+          const latestEntry = history[history.length - 1]
+          const alive =
+            latestEntry !== undefined
+              ? latestEntry.delay > 0
+              : Boolean(existing.alive || proxy.alive)
           providerProxiesMap.set(proxy.name, {
             ...existing,
             ...proxy,
+            alive,
             history,
             extra: extra as any,
-            provider: provider.name,
+            provider: existing.provider || provider.name,
           })
         }
       }

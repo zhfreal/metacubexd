@@ -106,3 +106,13 @@ In Mihomo proxy groups configured with `type: load-balance` (especially the `lea
 * **`v1.273.0+patch1`** / **`v1.273.0-patch1`**: Initial load-balance active tagging, natural sorting, and relative baseURL fixes.
 * **`v1.273.0+patch2`** / **`v1.273.0-patch2`**: Version bump, full dynamic API integration with Mihomo `v1.19.30+patch6`, and group RTT history recording fix.
 * **`v1.273.0+patch3`** / **`v1.273.0-patch3`**: Fix group RTT test synthetic duplicate generation and second-resolution timestamp deduplication.
+
+---
+
+## Post-Review Fixes & Design Improvements
+
+1. **Chronological `alive` Derivation in `mergeProxyExtras` & Multi-Provider Node Merging (`packages/ui/stores/proxies.ts`)**:
+   - Fixed `mergeProxyExtras` where `dataA?.alive ?? dataB?.alive` used nullish coalescing (`??`), causing a stale `false` boolean in `dataA` to override a newer `true` state in `dataB`. `alive` is now derived from the latest chronological merged `history` entry (`latestEntry.delay > 0`), falling back to `Boolean(dataA?.alive || dataB?.alive)`.
+   - Fixed `providerProxiesMap` multi-provider node merging to preserve the primary `existing.provider` attribution and compute `alive` from the merged delay history.
+2. **Consistent `LB` Pool Badge Rendering (`packages/ui/components/ProxyNodeCard.vue`)**:
+   - Changed `v-if="isActiveInLB && !isSelected"` to `v-if="isActiveInLB"` so that all active members of a `LoadBalance` (`least-load`) candidate pool display the `LB` badge consistently, including the node currently sampled as `now`.

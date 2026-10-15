@@ -274,7 +274,7 @@ function handleLatencyTest() {
 
       <!-- Load Balance Active Indicator Badge -->
       <div
-        v-if="isActiveInLB && !isSelected"
+        v-if="isActiveInLB"
         class="absolute -top-1.5 z-1 flex items-center gap-1 rounded-full bg-secondary px-1.5 py-0.5 text-[0.6rem] font-bold text-secondary-content shadow-sm"
         :class="isRecommended ? 'left-4' : '-left-1.5'"
         :title="lbStrategy ? `Active in ${lbStrategy}` : 'Active in Load Balance'"
