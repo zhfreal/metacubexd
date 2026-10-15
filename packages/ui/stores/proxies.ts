@@ -204,7 +204,10 @@ export const useProxiesStore = defineStore('proxies', () => {
     extraA?: Record<string, { history?: Proxy['history']; alive?: boolean }>,
     extraB?: Record<string, { history?: Proxy['history']; alive?: boolean }>,
   ) => {
-    const result: Record<string, { history?: Proxy['history']; alive?: boolean }> = {}
+    const result: Record<
+      string,
+      { history?: Proxy['history']; alive?: boolean }
+    > = {}
     const allUrls = new Set([
       ...Object.keys(extraA || {}),
       ...Object.keys(extraB || {}),
@@ -214,8 +217,13 @@ export const useProxiesStore = defineStore('proxies', () => {
       const dataA = extraA?.[url]
       const dataB = extraB?.[url]
       const history = mergeDelayHistories(dataA?.history, dataB?.history)
+      const latestEntry = history[history.length - 1]
+      const alive =
+        latestEntry !== undefined
+          ? latestEntry.delay > 0
+          : Boolean(dataA?.alive || dataB?.alive)
       result[url] = {
-        alive: dataA?.alive ?? dataB?.alive,
+        alive,
         history,
       }
     }
@@ -389,16 +397,28 @@ export const useProxiesStore = defineStore('proxies', () => {
       for (const proxy of provider.proxies) {
         const existing = providerProxiesMap.get(proxy.name)
         if (!existing) {
-          providerProxiesMap.set(proxy.name, { ...proxy, provider: provider.name })
+          providerProxiesMap.set(proxy.name, {
+            ...proxy,
+            provider: provider.name,
+          })
         } else {
           const history = mergeDelayHistories(existing.history, proxy.history)
-          const extra = mergeProxyExtras(existing.extra as any, proxy.extra as any)
+          const extra = mergeProxyExtras(
+            existing.extra as any,
+            proxy.extra as any,
+          )
+          const latestEntry = history[history.length - 1]
+          const alive =
+            latestEntry !== undefined
+              ? latestEntry.delay > 0
+              : Boolean(existing.alive || proxy.alive)
           providerProxiesMap.set(proxy.name, {
             ...existing,
             ...proxy,
+            alive,
             history,
             extra: extra as any,
-            provider: provider.name,
+            provider: existing.provider || provider.name,
           })
         }
       }
@@ -430,7 +450,9 @@ export const useProxiesStore = defineStore('proxies', () => {
 
     const allProxies = [
       ...mergedProxies,
-      ...Array.from(providerProxiesMap.values()).filter((p) => !(p.name in proxiesData)),
+      ...Array.from(providerProxiesMap.values()).filter(
+        (p) => !(p.name in proxiesData),
+      ),
     ]
 
     proxies.value = sortedProxies
